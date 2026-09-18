@@ -10,7 +10,11 @@
         "commands": [
             {
                 "command": "commentHider.toggle",
-                "title": "Comments Hider"
+                "title": "Toggle Hide Comments"
+            },
+            {
+                "command": "commentHider.removeAll",
+                "title": "Remove All Comments (Permanent)"
             }
         ],
         "keybindings": [
@@ -18,6 +22,12 @@
                 "command": "commentHider.toggle",
                 "key": "ctrl+f1",
                 "mac": "cmd+f1",
+                "when": "editorTextFocus"
+            },
+            {
+                "command": "commentHider.removeAll",
+                "key": "ctrl+f2",
+                "mac": "cmd+f2",
                 "when": "editorTextFocus"
             }
         ]
