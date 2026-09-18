@@ -2,7 +2,6 @@
 
 Toggle-hide or permanently remove comments in any file — one shortcut for each.
 
-![Comment Hider icon](icon.png)
 
 ## Features
 
@@ -34,12 +33,6 @@ Don't see your language? Open an issue or a PR — adding one is a single entry 
 
 Search "Comment Hider" in the Extensions view (`Ctrl+Shift+X`) inside VS Code, or install from the [Marketplace](https://marketplace.visualstudio.com/).
 
-## Development
-
-```bash
-git clone https://github.com/bitwisenotation/comment-hider.git
-cd comment-hider
-```
 
 Open the folder in VS Code and press `F5` to launch an Extension Development Host with the extension loaded. No build step — it's plain JavaScript.
 

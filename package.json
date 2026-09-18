@@ -3,7 +3,7 @@
     "displayName": "Comment Hider",
     "description": "Toggle-hide or permanently remove comments in any file with one shortcut.",
     "version": "1.0.0",
-    "publisher": "your-chosen-id",
+    "publisher": "YuviSingh",
     "icon": "icon.png",
     "categories": ["Other"],
     "engines": {
