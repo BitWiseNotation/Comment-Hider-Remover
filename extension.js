@@ -118,11 +118,14 @@ function findCommentMatches(document) {
     return matches;
 }
 
-// Splits matches into:
-//  - trailingRanges: vscode.Range[] for comments that follow real code on the same line
-//    (these get visually hidden via decoration, since you can't fold "part of a line")
-//  - blocks: [{start,end}] line-number ranges where EVERY line is comment-only
-//    (these get folded, which actually removes the vertical gap)
+// Splits raw matches into:
+//  - trailingRanges: vscode.Range[] for comments following real code on the
+//    same line (e.g. "); // MaterialApp")
+//  - allBlocks: [{start,end}] line-number ranges where EVERY line is
+//    comment-only, including single-line ones. Callers decide what to do
+//    with single-line vs multi-line blocks based on their own needs (see
+//    notes at each call site — folding and deletion have different
+//    constraints here).
 function classifyMatches(document, matches) {
     const trailingRanges = [];
     const wholeLineNumbers = new Set();
@@ -146,23 +149,23 @@ function classifyMatches(document, matches) {
     });
 
     const sorted = Array.from(wholeLineNumbers).sort((a, b) => a - b);
-    const blocks = [];
+    const allBlocks = [];
     let blockStart = null;
     let prev = null;
     sorted.forEach((ln) => {
         if (blockStart === null) {
             blockStart = ln;
         } else if (ln !== prev + 1) {
-            blocks.push({ start: blockStart, end: prev });
+            allBlocks.push({ start: blockStart, end: prev });
             blockStart = ln;
         }
         prev = ln;
     });
     if (blockStart !== null) {
-        blocks.push({ start: blockStart, end: prev });
+        allBlocks.push({ start: blockStart, end: prev });
     }
 
-    return { trailingRanges, blocks };
+    return { trailingRanges, allBlocks };
 }
 
 // Decoration for trailing (inline) comments — hides text, keeps the line.
@@ -214,22 +217,38 @@ async function toggleHideComments() {
         return;
     }
 
-    const { trailingRanges, blocks } = classifyMatches(editor.document, rawMatches);
+    const { trailingRanges, allBlocks } = classifyMatches(editor.document, rawMatches);
 
-    // Hide inline/trailing comments via decoration.
-    editor.setDecorations(hideDecorationType, trailingRanges);
+    // Only 2+ line blocks are safe fold targets — a 1-line fold range does
+    // nothing (or worse, causes VS Code to fall back to folding the entire
+    // enclosing class/function, which is the bug this comment is preventing).
+    const foldBlocks = allBlocks.filter((b) => b.end > b.start);
 
-    // Fold whole-line comment blocks — this is what removes the vertical gap.
-    if (blocks.length > 0) {
-        const foldingRanges = blocks.map(
+    // Single-line whole comments get decorated instead, alongside trailing
+    // comments — full-line range so the whole comment text disappears.
+    const singleLineRanges = allBlocks
+        .filter((b) => b.end === b.start)
+        .map((b) => {
+            const lineLength = editor.document.lineAt(b.start).text.length;
+            return new vscode.Range(
+                new vscode.Position(b.start, 0),
+                new vscode.Position(b.start, lineLength)
+            );
+        });
+
+    editor.setDecorations(hideDecorationType, trailingRanges.concat(singleLineRanges));
+
+    // Fold whole-line comment blocks of 2+ lines — this is what removes the vertical gap.
+    if (foldBlocks.length > 0) {
+        const foldingRanges = foldBlocks.map(
             (b) => new vscode.FoldingRange(b.start, b.end, vscode.FoldingRangeKind.Comment)
         );
         foldingRangesMap.set(uri, foldingRanges);
-        const linesToFold = blocks.map((b) => b.start);
+        const linesToFold = foldBlocks.map((b) => b.start);
         await vscode.commands.executeCommand('editor.fold', { selectionLines: linesToFold });
     }
 
-    hiddenState.set(uri, { hidden: true, blocks });
+    hiddenState.set(uri, { hidden: true, blocks: foldBlocks });
 }
 
 
@@ -241,7 +260,7 @@ function trimmedStartForTrailing(document, range) {
     return new vscode.Position(range.start.line, trimmed.length);
 }
 
-function buildDeletionRanges(document, trailingRanges, blocks) {
+function buildDeletionRanges(document, trailingRanges, allBlocks) {
     const deletions = [];
 
     trailingRanges.forEach((range) => {
@@ -249,7 +268,7 @@ function buildDeletionRanges(document, trailingRanges, blocks) {
         deletions.push(new vscode.Range(start, range.end));
     });
 
-    blocks.forEach((b) => {
+    allBlocks.forEach((b) => {
         if (b.end < document.lineCount - 1) {
             // Not the end of the file: delete through the newline after the block.
             deletions.push(new vscode.Range(
@@ -284,6 +303,22 @@ async function removeCommentsPermanently() {
     }
 
     const document = editor.document;
+
+    // Clear any leftover toggle-hide state first, so there's no stale
+    // decoration painting over the area and making the real deletion look
+    // like it didn't happen.
+    const uri = document.uri.toString();
+    const state = hiddenState.get(uri);
+    if (state && state.hidden) {
+        editor.setDecorations(hideDecorationType, []);
+        const linesToUnfold = state.blocks.map((b) => b.start);
+        if (linesToUnfold.length > 0) {
+            await vscode.commands.executeCommand('editor.unfold', { selectionLines: linesToUnfold });
+        }
+        foldingRangesMap.delete(uri);
+        hiddenState.set(uri, { hidden: false, blocks: [] });
+    }
+
     const rawMatches = findCommentMatches(document);
     if (rawMatches.length === 0) {
         vscode.window.showInformationMessage(
@@ -292,8 +327,8 @@ async function removeCommentsPermanently() {
         return;
     }
 
-    const { trailingRanges, blocks } = classifyMatches(document, rawMatches);
-    const deletions = buildDeletionRanges(document, trailingRanges, blocks);
+    const { trailingRanges, allBlocks } = classifyMatches(document, rawMatches);
+    const deletions = buildDeletionRanges(document, trailingRanges, allBlocks);
 
     await editor.edit((editBuilder) => {
         deletions.forEach((r) => editBuilder.delete(r));

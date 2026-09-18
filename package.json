@@ -10,11 +10,13 @@
         "commands": [
             {
                 "command": "commentHider.toggle",
-                "title": "Toggle Hide Comments"
+                "title": "Toggle Hide Comments",
+                "icon": "$(eye-closed)"
             },
             {
                 "command": "commentHider.removeAll",
-                "title": "Remove All Comments (Permanent)"
+                "title": "Remove All Comments (Permanent)",
+                "icon": "$(trash)"
             }
         ],
         "keybindings": [
@@ -30,6 +32,18 @@
                 "mac": "cmd+f2",
                 "when": "editorTextFocus"
             }
-        ]
+        ],
+        "menus": {
+            "editor/title": [
+                {
+                    "command": "commentHider.toggle",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "commentHider.removeAll",
+                    "group": "navigation@2"
+                }
+            ]
+        }
     }
 }
