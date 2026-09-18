@@ -1,0 +1,25 @@
+{
+    "name": "comment-hider",
+    "version": "1.0.0",
+    "engines": {
+        "vscode": "^1.80.0"
+    },
+    "main": "./extension.js",
+    "activationEvents": ["onStartupFinished"],
+    "contributes": {
+        "commands": [
+            {
+                "command": "commentHider.toggle",
+                "title": "Comments Hider"
+            }
+        ],
+        "keybindings": [
+            {
+                "command": "commentHider.toggle",
+                "key": "ctrl+f1",
+                "mac": "cmd+f1",
+                "when": "editorTextFocus"
+            }
+        ]
+    }
+}
