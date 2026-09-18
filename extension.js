@@ -1,4 +1,4 @@
-const vscode = require('vscode');  //imports using CommonJS syntax
+const vscode = require('vscode');
 
 const data = {
     "javascript": { "line": "//", "block": { "starting": "/*", "ending": "*/" } },
@@ -18,7 +18,6 @@ const data = {
     "scala": { "line": "//", "block": { "starting": "/*", "ending": "*/" } },
     "groovy": { "line": "//", "block": { "starting": "/*", "ending": "*/" } },
     "objective-c": { "line": "//", "block": { "starting": "/*", "ending": "*/" } },
-
     "python": { "line": "#", "block": { "starting": null, "ending": null } },
     "ruby": { "line": "#", "block": { "starting": "=begin", "ending": "=end" } },
     "shellscript": { "line": "#", "block": { "starting": null, "ending": null } },
@@ -29,30 +28,25 @@ const data = {
     "r": { "line": "#", "block": { "starting": null, "ending": null } },
     "toml": { "line": "#", "block": { "starting": null, "ending": null } },
     "makefile": { "line": "#", "block": { "starting": null, "ending": null } },
-
     "sql": { "line": "--", "block": { "starting": "/*", "ending": "*/" } },
     "lua": { "line": "--", "block": { "starting": "--[[", "ending": "]]" } },
     "haskell": { "line": "--", "block": { "starting": "{-", "ending": "-}" } },
     "ada": { "line": "--", "block": { "starting": null, "ending": null } },
-
     "html": { "line": null, "block": { "starting": "<!--", "ending": "-->" } },
     "xml": { "line": null, "block": { "starting": "<!--", "ending": "-->" } },
     "markdown": { "line": null, "block": { "starting": "<!--", "ending": "-->" } },
     "vue": { "line": null, "block": { "starting": "<!--", "ending": "-->" } },
-
     "css": { "line": null, "block": { "starting": "/*", "ending": "*/" } },
     "scss": { "line": "//", "block": { "starting": "/*", "ending": "*/" } },
     "less": { "line": "//", "block": { "starting": "/*", "ending": "*/" } },
-
     "matlab": { "line": "%", "block": { "starting": "%{", "ending": "%}" } },
     "latex": { "line": "%", "block": { "starting": null, "ending": null } },
-
     "vb": { "line": "'", "block": { "starting": null, "ending": null } },
     "fsharp": { "line": "//", "block": { "starting": "(*", "ending": "*)" } },
     "pascal": { "line": "//", "block": { "starting": "{", "ending": "}" } }
 };
 
-function lookup(languageId) {     //lookup function to match a language and find their comment symbols
+function lookup(languageId) {
     return data[languageId];
 }
 
@@ -91,7 +85,6 @@ function blockCommentFinder(text, startMarker, endMarker) {
     return results;
 }
 
-// Raw {start,end} matches for the whole document — no vscode.Range yet
 function findCommentMatches(document) {
     const syntax = lookup(document.languageId);
     if (!syntax) return [];
@@ -118,14 +111,6 @@ function findCommentMatches(document) {
     return matches;
 }
 
-// Splits raw matches into:
-//  - trailingRanges: vscode.Range[] for comments following real code on the
-//    same line (e.g. "); // MaterialApp")
-//  - allBlocks: [{start,end}] line-number ranges where EVERY line is
-//    comment-only, including single-line ones. Callers decide what to do
-//    with single-line vs multi-line blocks based on their own needs (see
-//    notes at each call site — folding and deletion have different
-//    constraints here).
 function classifyMatches(document, matches) {
     const trailingRanges = [];
     const wholeLineNumbers = new Set();
@@ -168,24 +153,21 @@ function classifyMatches(document, matches) {
     return { trailingRanges, allBlocks };
 }
 
-// Decoration for trailing (inline) comments — hides text, keeps the line.
 const hideDecorationType = vscode.window.createTextEditorDecorationType({
     textDecoration: 'none; display: none;',
 });
 
-// Our own folding ranges per document, so 'editor.fold' has something to fold
-// even on languages/lines that wouldn't normally be foldable.
-const foldingRangesMap = new Map(); // uri string -> vscode.FoldingRange[]
+const foldingRangesMap = new Map();
+const foldingChangeEmitter = new vscode.EventEmitter();
 
 const foldingProvider = {
+    onDidChangeFoldingRanges: foldingChangeEmitter.event,
     provideFoldingRanges(document) {
         return foldingRangesMap.get(document.uri.toString()) || [];
     }
 };
 
-// Per-file toggle state: whether hidden, and which blocks we folded (so we know
-// exactly what to unfold later).
-const hiddenState = new Map(); // uri string -> { hidden: bool, blocks: [{start,end}] }
+const hiddenState = new Map();
 
 async function toggleHideComments() {
     const editor = vscode.window.activeTextEditor;
@@ -198,13 +180,13 @@ async function toggleHideComments() {
     const isHidden = state && state.hidden;
 
     if (isHidden) {
-        // Show again: clear decorations and unfold whatever we folded.
         editor.setDecorations(hideDecorationType, []);
         const linesToUnfold = state.blocks.map((b) => b.start);
         if (linesToUnfold.length > 0) {
             await vscode.commands.executeCommand('editor.unfold', { selectionLines: linesToUnfold });
         }
         foldingRangesMap.delete(uri);
+        foldingChangeEmitter.fire(editor.document);
         hiddenState.set(uri, { hidden: false, blocks: [] });
         return;
     }
@@ -218,14 +200,8 @@ async function toggleHideComments() {
     }
 
     const { trailingRanges, allBlocks } = classifyMatches(editor.document, rawMatches);
-
-    // Only 2+ line blocks are safe fold targets — a 1-line fold range does
-    // nothing (or worse, causes VS Code to fall back to folding the entire
-    // enclosing class/function, which is the bug this comment is preventing).
     const foldBlocks = allBlocks.filter((b) => b.end > b.start);
 
-    // Single-line whole comments get decorated instead, alongside trailing
-    // comments — full-line range so the whole comment text disappears.
     const singleLineRanges = allBlocks
         .filter((b) => b.end === b.start)
         .map((b) => {
@@ -238,20 +214,18 @@ async function toggleHideComments() {
 
     editor.setDecorations(hideDecorationType, trailingRanges.concat(singleLineRanges));
 
-    // Fold whole-line comment blocks of 2+ lines — this is what removes the vertical gap.
     if (foldBlocks.length > 0) {
         const foldingRanges = foldBlocks.map(
             (b) => new vscode.FoldingRange(b.start, b.end, vscode.FoldingRangeKind.Comment)
         );
         foldingRangesMap.set(uri, foldingRanges);
+        foldingChangeEmitter.fire(editor.document);
         const linesToFold = foldBlocks.map((b) => b.start);
         await vscode.commands.executeCommand('editor.fold', { selectionLines: linesToFold });
     }
 
     hiddenState.set(uri, { hidden: true, blocks: foldBlocks });
 }
-
-
 
 function trimmedStartForTrailing(document, range) {
     const lineText = document.lineAt(range.start.line).text;
@@ -270,21 +244,17 @@ function buildDeletionRanges(document, trailingRanges, allBlocks) {
 
     allBlocks.forEach((b) => {
         if (b.end < document.lineCount - 1) {
-            // Not the end of the file: delete through the newline after the block.
             deletions.push(new vscode.Range(
                 new vscode.Position(b.start, 0),
                 new vscode.Position(b.end + 1, 0)
             ));
         } else if (b.start > 0) {
-            // Block runs to end of file: delete the newline BEFORE it instead,
-            // so we don't leave a trailing blank line.
             const prevLineLen = document.lineAt(b.start - 1).text.length;
             deletions.push(new vscode.Range(
                 new vscode.Position(b.start - 1, prevLineLen),
                 new vscode.Position(b.end, document.lineAt(b.end).text.length)
             ));
         } else {
-            // The whole file is comment lines.
             const lastLineLen = document.lineAt(b.end).text.length;
             deletions.push(new vscode.Range(
                 new vscode.Position(0, 0),
@@ -303,12 +273,9 @@ async function removeCommentsPermanently() {
     }
 
     const document = editor.document;
-
-    // Clear any leftover toggle-hide state first, so there's no stale
-    // decoration painting over the area and making the real deletion look
-    // like it didn't happen.
     const uri = document.uri.toString();
     const state = hiddenState.get(uri);
+
     if (state && state.hidden) {
         editor.setDecorations(hideDecorationType, []);
         const linesToUnfold = state.blocks.map((b) => b.start);
@@ -316,6 +283,7 @@ async function removeCommentsPermanently() {
             await vscode.commands.executeCommand('editor.unfold', { selectionLines: linesToUnfold });
         }
         foldingRangesMap.delete(uri);
+        foldingChangeEmitter.fire(document);
         hiddenState.set(uri, { hidden: false, blocks: [] });
     }
 
@@ -330,24 +298,29 @@ async function removeCommentsPermanently() {
     const { trailingRanges, allBlocks } = classifyMatches(document, rawMatches);
     const deletions = buildDeletionRanges(document, trailingRanges, allBlocks);
 
-    await editor.edit((editBuilder) => {
+    const success = await editor.edit((editBuilder) => {
         deletions.forEach((r) => editBuilder.delete(r));
     });
+
+    if (!success) {
+        vscode.window.showErrorMessage('Edit failed to apply.');
+        return;
+    }
 
     vscode.window.showInformationMessage(`Removed ${rawMatches.length} comment(s) from the file.`);
 }
 
-function activate(context) {                     //required for extension
+function activate(context) {
     const disposable = vscode.commands.registerCommand('commentHider.toggle', toggleHideComments);
     context.subscriptions.push(disposable);
 
     const removeDisposable = vscode.commands.registerCommand('commentHider.removeAll', removeCommentsPermanently);
     context.subscriptions.push(removeDisposable);
 
-    // Register our folding provider for all languages, so 'editor.fold' has
-    // ranges to work with even on lines that aren't normally foldable.
     const foldingDisposable = vscode.languages.registerFoldingRangeProvider('*', foldingProvider);
     context.subscriptions.push(foldingDisposable);
+    context.subscriptions.push(foldingChangeEmitter);
+    context.subscriptions.push(hideDecorationType);
 
     vscode.workspace.onDidCloseTextDocument((doc) => {
         const uri = doc.uri.toString();
@@ -356,7 +329,7 @@ function activate(context) {                     //required for extension
     });
 }
 
-function deactivate() {}    //required for extension
+function deactivate() {}
 
 module.exports = {
     activate,

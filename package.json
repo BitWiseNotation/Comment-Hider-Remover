@@ -1,6 +1,11 @@
 {
     "name": "comment-hider",
+    "displayName": "Comment Hider",
+    "description": "Toggle-hide or permanently remove comments in any file with one shortcut.",
     "version": "1.0.0",
+    "publisher": "your-chosen-id",
+    "icon": "icon.png",
+    "categories": ["Other"],
     "engines": {
         "vscode": "^1.80.0"
     },
